@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SPOT Request Map</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@400;600&display=swap" rel="stylesheet">
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --border: #30363d;
+      --accent: #f0883e;
+      --accent2: #58a6ff;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --danger: #f85149;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Barlow', sans-serif;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .header-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    header h1 {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    header .subtitle {
+      font-size: 12px;
+      color: var(--muted);
+      font-family: 'Share Tech Mono', monospace;
+      margin-left: auto;
+    }
+
+    #map {
+      flex: 1;
+      width: 100%;
+    }
+
+    .info-bar {
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      padding: 8px 16px;
+      display: flex;
+      gap: 24px;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    .info-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .info-label {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .info-value {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .info-value.highlight { color: var(--accent); }
+    .info-value.highlight2 { color: var(--accent2); }
+
+    #error-msg {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: var(--panel);
+      border: 1px solid var(--danger);
+      color: var(--danger);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 13px;
+      padding: 20px 28px;
+      border-radius: 4px;
+      z-index: 1000;
+      text-align: center;
+    }
+
+    /* Leaflet dark tile override */
+    .leaflet-tile { filter: brightness(0.85) saturate(0.9); }
+
+    /* Custom popup style */
+    .leaflet-popup-content-wrapper {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 12px;
+    }
+    .leaflet-popup-tip { background: var(--panel); }
+    .leaflet-popup-content { margin: 10px 14px; line-height: 1.6; }
+    .popup-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+    .popup-coords { color: var(--muted); font-size: 11px; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="header-dot"></div>
+    <h1>SPOT Request — Location</h1>
+    <div class="subtitle" id="header-subtitle">Loading...</div>
+  </header>
+
+  <div style="position:relative; flex:1; display:flex; flex-direction:column;">
+    <div id="map"></div>
+    <div id="error-msg">Missing or invalid lat/lon parameters.<br>Expected: ?lat=XX.XXXX&lon=-XX.XXXX</div>
+  </div>
+
+  <div class="info-bar">
+    <div class="info-item">
+      <span class="info-label">BNF M1</span>
+      <span class="info-value highlight" id="info-bnf">34.3425, -87.3382</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Incident</span>
+      <span class="info-value highlight2" id="info-incident">—</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Distance</span>
+      <span class="info-value" id="info-distance">—</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Bearing</span>
+      <span class="info-value" id="info-bearing">—</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  const BNF_LAT = 34.342481;
+  const BNF_LON = -87.338177;
+
+  const params = new URLSearchParams(window.location.search);
+  const lat = parseFloat(params.get("lat"));
+  const lon = parseFloat(params.get("lon"));
+  const label = params.get("label") || "Incident";
+
+  const valid = !isNaN(lat) && !isNaN(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+
+  if (!valid) {
+    document.getElementById("error-msg").style.display = "block";
+    document.getElementById("header-subtitle").textContent = "NO FIX";
+  }
+
+  // Haversine
+  function toRad(d) { return d * Math.PI / 180; }
+  function haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dlat = toRad(lat2 - lat1);
+    const dlon = toRad(lon2 - lon1);
+    const a = Math.sin(dlat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dlon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  function bearing(lat1, lon1, lat2, lon2) {
+    const y = Math.sin(toRad(lon2-lon1)) * Math.cos(toRad(lat2));
+    const x = Math.cos(toRad(lat1))*Math.sin(toRad(lat2)) - Math.sin(toRad(lat1))*Math.cos(toRad(lat2))*Math.cos(toRad(lon2-lon1));
+    const deg = (Math.degrees ? Math.degrees(Math.atan2(y,x)) : Math.atan2(y,x) * 180/Math.PI + 360) % 360;
+    const dirs = ["N","NE","E","SE","S","SW","W","NW"];
+    return { deg: Math.round(deg), label: dirs[Math.round(deg/45)%8] };
+  }
+
+  // Map init
+  const center = valid ? [(BNF_LAT + lat) / 2, (BNF_LON + lon) / 2] : [BNF_LAT, BNF_LON];
+  const map = L.map("map", { zoomControl: true }).setView(center, 7);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 18
+  }).addTo(map);
+
+  // BNF M1 marker (blue)
+  const bnfIcon = L.divIcon({
+    className: "",
+    html: `<svg width="28" height="36" viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg">
+      <path d="M14 0C6.27 0 0 6.27 0 14c0 9.63 14 22 14 22S28 23.63 28 14C28 6.27 21.73 0 14 0z" fill="#58a6ff"/>
+      <circle cx="14" cy="14" r="6" fill="#0d1117"/>
+    </svg>`,
+    iconSize: [28, 36],
+    iconAnchor: [14, 36],
+    popupAnchor: [0, -36]
+  });
+
+  // Incident marker (orange)
+  const incIcon = L.divIcon({
+    className: "",
+    html: `<svg width="28" height="36" viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg">
+      <path d="M14 0C6.27 0 0 6.27 0 14c0 9.63 14 22 14 22S28 23.63 28 14C28 6.27 21.73 0 14 0z" fill="#f0883e"/>
+      <circle cx="14" cy="14" r="6" fill="#0d1117"/>
+    </svg>`,
+    iconSize: [28, 36],
+    iconAnchor: [14, 36],
+    popupAnchor: [0, -36]
+  });
+
+  // Range rings every 5 km out to 50 km from BNF M1
+  for (let r = 5; r <= 50; r += 5) {
+    L.circle([BNF_LAT, BNF_LON], {
+      radius: r * 1000,
+      color: "#58a6ff",
+      weight: r % 10 === 0 ? 1.2 : 0.7,
+      opacity: r % 10 === 0 ? 0.25 : 0.15,
+      fill: false,
+      interactive: false
+    }).addTo(map);
+  }
+
+  L.marker([BNF_LAT, BNF_LON], {icon: bnfIcon})
+    .addTo(map)
+    .bindPopup(`<div class="popup-title">BNF M1</div><div class="popup-coords">${BNF_LAT.toFixed(4)}, ${BNF_LON.toFixed(4)}</div>`);
+
+  if (valid) {
+    L.marker([lat, lon], {icon: incIcon})
+      .addTo(map)
+      .bindPopup(`<div class="popup-title">${label}</div><div class="popup-coords">${lat.toFixed(4)}, ${lon.toFixed(4)}</div>`)
+      .openPopup();
+
+    // Fit bounds with padding
+    map.fitBounds([[BNF_LAT, BNF_LON], [lat, lon]], { padding: [60, 60] });
+
+    // Info bar
+    const dist = haversine(BNF_LAT, BNF_LON, lat, lon);
+    const brg = bearing(BNF_LAT, BNF_LON, lat, lon);
+    document.getElementById("info-incident").textContent = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    document.getElementById("info-distance").textContent = `${Math.round(dist)} km`;
+    document.getElementById("info-bearing").textContent = `${brg.deg}° ${brg.label}`;
+    document.getElementById("header-subtitle").textContent = label.toUpperCase();
+  }
+</script>
+</body>
+</html>
