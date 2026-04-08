@@ -279,7 +279,7 @@
     const dist = haversine(BNF_LAT, BNF_LON, lat, lon);
     const brg = bearing(BNF_LAT, BNF_LON, lat, lon);
     document.getElementById("info-incident").textContent = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
-    document.getElementById("info-distance").textContent = `${Math.round(dist)} km`;
+    document.getElementById("info-distance").textContent = `${dist.toFixed(1)} km`;
     document.getElementById("info-bearing").textContent = `${brg.deg}° ${brg.label}`;
     document.getElementById("header-subtitle").textContent = label.toUpperCase();
   }
